@@ -263,8 +263,14 @@ main (int argc, char *argv[])
 
   std::auto_ptr<QApplication> app;
 
-#if !defined(Q_WS_MAC) && defined(FALLBACK_CURSES)
-  if (!pinentry_have_display (argc, argv))
+#if defined(FALLBACK_CURSES)
+  if (
+#if defined(Q_WS_MAC)
+    getenv("SSH_TTY")
+#else
+    !pinentry_have_display (argc, argv)
+#endif
+    )
     pinentry_cmd_handler = curses_cmd_handler;
   else
 #endif
