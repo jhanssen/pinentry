@@ -263,7 +263,7 @@ main (int argc, char *argv[])
 
   std::auto_ptr<QApplication> app;
 
-#ifdef FALLBACK_CURSES
+#if !defined(Q_WS_MAC) && defined(FALLBACK_CURSES)
   if (!pinentry_have_display (argc, argv))
     pinentry_cmd_handler = curses_cmd_handler;
   else

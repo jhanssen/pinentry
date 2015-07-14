@@ -86,7 +86,7 @@ public:
           cursorVisible(0), hideCursor(false), separator(0), readOnly(0),
           dragEnabled(0), contextMenuEnabled(1), echoMode(QSecureLineEdit::Password), textDirty(0),
           selDirty(0), validInput(1), alignment(Qt::AlignLeading | Qt::AlignVCenter), ascent(0),
-          maxLength(32767), hscroll(0), vscroll(0), lastCursorPos(-1), maskData(0),
+          maxLength(32767), hscroll(0), vscroll(0), lastCursorPos(-1), secChar(0), maskData(0),
           modifiedState(0), undoState(0), selstart(0), selend(0), userInput(false),
           emitingEditingFinished(false), resumePassword(false)
 #ifndef QT_NO_COMPLETER
@@ -101,6 +101,10 @@ public:
     ~QSecureLineEditPrivate()
     {
         delete [] maskData;
+        if (secChar) {
+            secmem::alloc<char> a;
+            a.deallocate(secChar, sizeof(QChar));
+        }
     }
     void init(const secqstring&);
 
@@ -127,6 +131,9 @@ public:
     int hscroll;
     int vscroll;
     int lastCursorPos;
+    mutable char* secChar;
+
+    QChar& secureChar(unsigned int ch) const;
 
     enum { UndoAct, RedoAct, CutAct, CopyAct, PasteAct, ClearAct, SelectAllAct, NCountActs };
 #ifndef QT_NO_MENU
@@ -141,12 +148,12 @@ public:
     QPointer<QValidator> validator;
     struct MaskInputData {
         enum Casemode { NoCaseMode, Upper, Lower };
-        QChar maskChar; // either the separator char or the inputmask
+        unsigned short maskChar; // either the separator char or the inputmask
         bool separator;
         Casemode caseMode;
     };
     QString inputMask;
-    QChar blank;
+    unsigned short blank;
     MaskInputData *maskData;
     inline int nextMaskBlank(int pos) {
         int c = findInMask(pos, true, false);
@@ -166,9 +173,9 @@ public:
     enum CommandType { Separator, Insert, Remove, Delete, RemoveSelection, DeleteSelection, SetSelection };
     struct Command {
         inline Command() {}
-        inline Command(CommandType t, int p, QChar c, int ss, int se) : type(t),uc(c),pos(p),selStart(ss),selEnd(se) {}
+        inline Command(CommandType t, int p, unsigned short c, int ss, int se) : type(t),uc(c),pos(p),selStart(ss),selEnd(se) {}
         uint type : 4;
-        QChar uc;
+        unsigned short uc;
         int pos, selStart, selEnd;
     };
     int modifiedState;
@@ -200,12 +207,12 @@ public:
 
     // masking
     void parseInputMask(const QString &maskFields);
-    bool isValidInput(QChar key, QChar mask) const;
+    bool isValidInput(unsigned short key, unsigned short mask) const;
     bool hasAcceptableInput(const secqstring &text) const;
     secqstring maskString(uint pos, const secqstring &str, bool clear = false) const;
     secqstring clearString(uint pos, uint len) const;
     secqstring stripString(const secqstring &str) const;
-    int findInMask(int pos, bool forward, bool findSeparator, QChar searchChar = QChar()) const;
+    int findInMask(int pos, bool forward, bool findSeparator, unsigned short searchChar = 0) const;
 
     // input methods
     bool composeMode() const { return !textLayout.preeditAreaText().isEmpty(); }

@@ -26,11 +26,10 @@
 #include <secmem/secmem++.h>
 #include <string>
 
-#include <QChar>
 #include <QMetaType>
 
 typedef std::basic_string<  char, std::char_traits< char>, secmem::alloc< char> > secstring;
-typedef std::basic_string< QChar, std::char_traits<QChar>, secmem::alloc<QChar> > secqstring;
+typedef std::basic_string< unsigned short, std::char_traits<unsigned short>, secmem::alloc<unsigned short> > secqstring;
 
 secstring toUtf8( const secqstring & str );
 

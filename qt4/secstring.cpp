@@ -62,6 +62,19 @@
 **
 ****************************************************************************/
 
+static inline bool isHighSurrogate(unsigned short ucs)
+{
+    return ((ucs & 0xfc00) == 0xd800);
+}
+static inline bool isLowSurrogate(unsigned short ucs)
+{
+    return ((ucs & 0xfc00) == 0xdc00);
+}
+static inline uint surrogateToUcs4(unsigned short high, unsigned short low)
+{
+    return (uint(high)<<10) + low - 0x35fdc00;
+}
+
 secstring toUtf8( const secqstring & str )
 {
     secstring ba;
@@ -69,21 +82,21 @@ secstring toUtf8( const secqstring & str )
         int rlen = l*3+1;
         ba.reserve(rlen);
         /*uchar *cursor = (uchar*)ba.data();*/
-        const QChar *ch = str.data();
+        const unsigned short *ch = str.data();
         for (int i=0; i < l; i++) {
-            uint u = ch->unicode();
+            uint u = *ch;
             if (u < 0x80) {
                 ba.push_back( (uchar)u );
             } else {
                 if (u < 0x0800) {
                     ba.push_back( 0xc0 | ((uchar) (u >> 6)) );
                 } else {
-                    if (ch->isHighSurrogate() && i < l-1) {
-                        ushort low = ch[1].unicode();
-                        if (ch[1].isLowSurrogate()) {
+                    if (isHighSurrogate(*ch) && i < l-1) {
+                        ushort low = ch[1];
+                        if (isLowSurrogate(ch[1])) {
                             ++ch;
                             ++i;
-                            u = QChar::surrogateToUcs4(u,low);
+                            u = surrogateToUcs4(u,low);
                         }
                     }
                     if (u > 0xffff) {

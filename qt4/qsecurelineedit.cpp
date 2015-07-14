@@ -916,12 +916,12 @@ void QSecureLineEdit::backspace()
             --d->cursor;
             if (d->maskData)
                 d->cursor = d->prevMaskBlank(d->cursor);
-            QChar uc = d->text.at(d->cursor);
-            if (d->cursor > 0 && uc.unicode() >= 0xdc00 && uc.unicode() < 0xe000) {
+            unsigned short uc = d->text.at(d->cursor);
+            if (d->cursor > 0 && uc >= 0xdc00 && uc < 0xe000) {
                 // second half of a surrogate, check if we have the first half as well,
                 // if yes delete both at once
                 uc = d->text.at(d->cursor - 1);
-                if (uc.unicode() >= 0xd800 && uc.unicode() < 0xdc00) {
+                if (uc >= 0xd800 && uc < 0xdc00) {
                     d->del(true);
                     --d->cursor;
                 }
@@ -1098,7 +1098,7 @@ void QSecureLineEdit::setEdited(bool on) { setModified(on); }
 /*!
     There exists no equivalent functionality in Qt 4.
 */
-int QSecureLineEdit::characterAt(int xpos, QChar *chr) const
+int QSecureLineEdit::characterAt(int xpos, unsigned short *chr) const
 {
     Q_D(const QSecureLineEdit);
     int pos = d->xToPos(xpos + contentsRect().x() - d->hscroll + horizontalMargin);
@@ -1330,7 +1330,7 @@ void QSecureLineEdit::insert(const QString &newText)
 {
     if (!newText.isEmpty() && newText.at(0).isPrint()
             && newText.length() < 300) {
-        insert( secqstring( newText.begin(), newText.end() ) );
+        insert( secqstring( newText.utf16(), newText.size() ) );
     }
 }
 #endif
@@ -1479,7 +1479,6 @@ void QSecureLineEdit::copy() const
 void QSecureLineEdit::paste()
 {
 #ifndef QT_NO_CLIPBOARD
-    Q_D(QSecureLineEdit);
     if(echoMode() == PasswordEchoOnEdit)
     {
         Q_D(QSecureLineEdit);
@@ -1496,7 +1495,8 @@ void QSecureLineEditPrivate::copy(bool clipboard) const
 {
     Q_Q(const QSecureLineEdit);
     if (echoMode == QSecureLineEdit::Normal) {
-        QString t = QString(q->selectedText().c_str());
+        const secqstring& selected = q->selectedText();
+        QString t = QString::fromUtf16(selected.c_str(), selected.size());
         if (!t.isEmpty()) {
             q->disconnect(QApplication::clipboard(), SIGNAL(selectionChanged()), q, 0);
             QApplication::clipboard()->setText(t, clipboard ? QClipboard::Clipboard : QClipboard::Selection);
@@ -1736,7 +1736,7 @@ void QSecureLineEdit::mouseDoubleClickEvent(QMouseEvent* e)
         d->cursor = d->textLayout.previousCursorPosition(d->cursor, QTextLayout::SkipWords);
         // ## text layout should support end of words.
         int end = d->textLayout.nextCursorPosition(d->cursor, QTextLayout::SkipWords);
-        while (end > d->cursor && d->text[end-1].isSpace())
+        while (end > d->cursor && d->secureChar(d->text[end-1]).isSpace())
             --end;
         d->moveCursor(end, true);
         d->tripleClickTimer.start(QApplication::doubleClickInterval(), this);
@@ -2099,9 +2099,9 @@ void QSecureLineEdit::keyPressEvent(QKeyEvent *event)
     if (unknown && !d->readOnly) {
         QString t = event->text();
         if (!t.isEmpty() && t.at(0).isPrint()) {
-            insert( secqstring( t.begin(), t.end() ) );
+            insert( secqstring( t.utf16(), t.size() ) );
             // PENDING(marc) wipe 't' here?
-            // wipe( const_cast<QChar*>( t.constData() ), t.length() );
+            // wipe( const_cast<unsigned short*>( t.constData() ), t.length() );
 #ifndef QT_NO_COMPLETER
             d->complete(event->key());
 #endif
@@ -2127,6 +2127,18 @@ QRect QSecureLineEdit::cursorRect() const
     return d->cursorRect();
 }
 
+QChar& QSecureLineEditPrivate::secureChar(unsigned int ch) const
+{
+    if (!secChar) {
+        // allocate and placement new
+        secmem::alloc<char> a;
+        secChar = a.allocate(sizeof(QChar));
+    } else {
+        reinterpret_cast<QChar*>(secChar)->~QChar();
+    }
+    return *(new(secChar) QChar(ch));
+}
+
 /*!
   This function is not intended as polymorphic usage. Just a shared code
   fragment that calls QInputContext::mouseHandler for this
@@ -2137,11 +2149,11 @@ bool QSecureLineEditPrivate::sendMouseEventToInputContext( QMouseEvent *e )
 #if !defined QT_NO_IM
     Q_Q(QSecureLineEdit);
     if ( composeMode() ) {
-	int tmp_cursor = xToPos(e->pos().x());
-	int mousePos = tmp_cursor - cursor;
-	if ( mousePos < 0 || mousePos > textLayout.preeditAreaText().length() ) {
+        int tmp_cursor = xToPos(e->pos().x());
+        int mousePos = tmp_cursor - cursor;
+        if ( mousePos < 0 || mousePos > textLayout.preeditAreaText().length() ) {
             mousePos = -1;
-	    // don't send move events outside the preedit area
+            // don't send move events outside the preedit area
             if ( e->type() == QEvent::MouseMove )
                 return true;
         }
@@ -2208,7 +2220,7 @@ void QSecureLineEdit::inputMethodEvent(QInputMethodEvent *e)
     }
     const QString commitString = e->commitString();
     if (!commitString.isEmpty())
-        d->insert(secqstring(commitString.begin(), commitString.end()));
+        d->insert(secqstring(commitString.utf16(), commitString.size()));
 
     d->cursor = c;
 
@@ -2723,17 +2735,18 @@ void QSecureLineEditPrivate::updateTextLayout()
     // characters)
     Q_Q(QSecureLineEdit);
     secqstring str = q->displayText();
-    QChar* uc = str.empty() ? 0 : &str[0] ;
+    unsigned short* uc = str.empty() ? 0 : &str[0] ;
     for (int i = 0; i < (int)str.size(); ++i) {
+        QChar& quc = secureChar(uc[i]);
         if ((uc[i] < 0x20 && uc[i] != 0x09)
-            || uc[i] == QChar::LineSeparator
-            || uc[i] == QChar::ParagraphSeparator
-            || uc[i] == QChar::ObjectReplacementCharacter)
-            uc[i] = QChar(0x0020);
+            || quc == QChar::LineSeparator
+            || quc == QChar::ParagraphSeparator
+            || quc == QChar::ObjectReplacementCharacter)
+            uc[i] = 0x0020;
     }
     textLayout.setFont(q->font());
     // PENDING(marc) insecure (only when not in password mode)
-    textLayout.setText( QString( str.data(), str.size() ) );
+    textLayout.setText( QString::fromUtf16( str.c_str(), str.size() ) );
     QTextOption option;
     option.setTextDirection(q->layoutDirection());
     option.setFlags(QTextOption::IncludeTrailingSpaces);
@@ -3042,18 +3055,18 @@ void QSecureLineEditPrivate::parseInputMask(const QString &maskFields)
     }
 
     if (delimiter == -1) {
-        blank = QLatin1Char(' ');
+        blank = ' ';
         inputMask = maskFields;
     } else {
         inputMask = maskFields.left(delimiter);
-        blank = (delimiter + 1 < maskFields.length()) ? maskFields[delimiter + 1] : QLatin1Char(' ');
+        blank = (delimiter + 1 < maskFields.length()) ? maskFields[delimiter + 1].unicode() : ' ';
     }
 
     // calculate maxLength / maskData length
     maxLength = 0;
-    QChar c = 0;
+    unsigned short c = 0;
     for (int i=0; i<inputMask.length(); i++) {
-        c = inputMask.at(i);
+        c = inputMask.at(i).unicode();
         if (i > 0 && inputMask.at(i-1) == QLatin1Char('\\')) {
             maxLength++;
             continue;
@@ -3074,7 +3087,7 @@ void QSecureLineEditPrivate::parseInputMask(const QString &maskFields)
     bool escape = false;
     int index = 0;
     for (int i = 0; i < inputMask.length(); i++) {
-        c = inputMask.at(i);
+        c = inputMask.at(i).unicode();
         if (escape) {
             s = true;
             maskData[index].maskChar = c;
@@ -3089,7 +3102,7 @@ void QSecureLineEditPrivate::parseInputMask(const QString &maskFields)
         } else if (c == QLatin1Char('!')) {
             m = MaskInputData::NoCaseMode;
         } else if (c != QLatin1Char('{') && c != QLatin1Char('}') && c != QLatin1Char('[') && c != QLatin1Char(']')) {
-            switch (c.unicode()) {
+            switch (c) {
             case 'A':
             case 'a':
             case 'N':
@@ -3127,51 +3140,52 @@ void QSecureLineEditPrivate::parseInputMask(const QString &maskFields)
 
 
 /* checks if the key is valid compared to the inputMask */
-bool QSecureLineEditPrivate::isValidInput(QChar key, QChar mask) const
+bool QSecureLineEditPrivate::isValidInput(unsigned short key, unsigned short mask) const
 {
-    switch (mask.unicode()) {
+    QChar& qkey = secureChar(key);
+    switch (mask) {
     case 'A':
-        if (key.isLetter())
+        if (qkey.isLetter())
             return true;
         break;
     case 'a':
-        if (key.isLetter() || key == blank)
+        if (qkey.isLetter() || key == blank)
             return true;
         break;
     case 'N':
-        if (key.isLetterOrNumber())
+        if (qkey.isLetterOrNumber())
             return true;
         break;
     case 'n':
-        if (key.isLetterOrNumber() || key == blank)
+        if (qkey.isLetterOrNumber() || key == blank)
             return true;
         break;
     case 'X':
-        if (key.isPrint())
+        if (qkey.isPrint())
             return true;
         break;
     case 'x':
-        if (key.isPrint() || key == blank)
+        if (qkey.isPrint() || key == blank)
             return true;
         break;
     case '9':
-        if (key.isNumber())
+        if (qkey.isNumber())
             return true;
         break;
     case '0':
-        if (key.isNumber() || key == blank)
+        if (qkey.isNumber() || key == blank)
             return true;
         break;
     case 'D':
-        if (key.isNumber() && key.digitValue() > 0)
+        if (qkey.isNumber() && qkey.digitValue() > 0)
             return true;
         break;
     case 'd':
-        if ((key.isNumber() && key.digitValue() > 0) || key == blank)
+        if ((qkey.isNumber() && qkey.digitValue() > 0) || key == blank)
             return true;
         break;
     case '#':
-        if (key.isNumber() || key == QLatin1Char('+') || key == QLatin1Char('-') || key == blank)
+        if (qkey.isNumber() || key == QLatin1Char('+') || key == QLatin1Char('-') || key == blank)
             return true;
         break;
     case 'B':
@@ -3183,11 +3197,11 @@ bool QSecureLineEditPrivate::isValidInput(QChar key, QChar mask) const
             return true;
         break;
     case 'H':
-        if (key.isNumber() || (key >= QLatin1Char('a') && key <= QLatin1Char('f')) || (key >= QLatin1Char('A') && key <= QLatin1Char('F')))
+        if (qkey.isNumber() || (key >= QLatin1Char('a') && key <= QLatin1Char('f')) || (key >= QLatin1Char('A') && key <= QLatin1Char('F')))
             return true;
         break;
     case 'h':
-        if (key.isNumber() || (key >= QLatin1Char('a') && key <= QLatin1Char('f')) || (key >= QLatin1Char('A') && key <= QLatin1Char('F')) || key == blank)
+        if (qkey.isNumber() || (key >= QLatin1Char('a') && key <= QLatin1Char('f')) || (key >= QLatin1Char('A') && key <= QLatin1Char('F')) || key == blank)
             return true;
         break;
     default:
@@ -3252,10 +3266,10 @@ secqstring QSecureLineEditPrivate::maskString(uint pos, const secqstring &str, b
                 if (isValidInput(str[strIndex], maskData[i].maskChar)) {
                     switch (maskData[i].caseMode) {
                     case MaskInputData::Upper:
-                        s += str[strIndex].toUpper();
+                        s += secureChar(str[strIndex]).toUpper().unicode();
                         break;
                     case MaskInputData::Lower:
-                        s += str[strIndex].toLower();
+                        s += secureChar(str[strIndex]).toLower().unicode();
                         break;
                     default:
                         s += str[strIndex];
@@ -3276,10 +3290,10 @@ secqstring QSecureLineEditPrivate::maskString(uint pos, const secqstring &str, b
                             s += fill.substr(i, n-i);
                             switch (maskData[n].caseMode) {
                             case MaskInputData::Upper:
-                                s += str[strIndex].toUpper();
+                                s += secureChar(str[strIndex]).toUpper().unicode();
                                 break;
                             case MaskInputData::Lower:
-                                s += str[strIndex].toLower();
+                                s += secureChar(str[strIndex]).toLower().unicode();
                                 break;
                             default:
                                 s += str[strIndex];
@@ -3341,7 +3355,7 @@ secqstring QSecureLineEditPrivate::stripString(const secqstring &str) const
 }
 
 /* searches forward/backward in maskData for either a separator or a blank */
-int QSecureLineEditPrivate::findInMask(int pos, bool forward, bool findSeparator, QChar searchChar) const
+int QSecureLineEditPrivate::findInMask(int pos, bool forward, bool findSeparator, unsigned short searchChar) const
 {
     if (pos >= maxLength || pos < 0)
         return -1;
@@ -3356,7 +3370,7 @@ int QSecureLineEditPrivate::findInMask(int pos, bool forward, bool findSeparator
                 return i;
         } else {
             if (!maskData[i].separator) {
-                if (searchChar.isNull())
+                if (!searchChar)
                     return i;
                 else if (isValidInput(searchChar, maskData[i].maskChar))
                     return i;

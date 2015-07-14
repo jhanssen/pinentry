@@ -267,7 +267,7 @@ public:
     inline QT3_SUPPORT secqstring markedText() const { return selectedText(); }
     QT3_SUPPORT bool edited() const;
     QT3_SUPPORT void setEdited(bool);
-    QT3_SUPPORT int characterAt(int, QChar*) const;
+    QT3_SUPPORT int characterAt(int, unsigned short*) const;
     QT3_SUPPORT bool getSelection(int *, int *);
 
     QT3_SUPPORT void setFrameRect(QRect) {}
